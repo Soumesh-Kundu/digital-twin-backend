@@ -1,0 +1,52 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider          = "postgresql"
+  url               = env("DB_URL")
+  shadowDatabaseUrl = env("SHADOW_DB_URL")
+}
+
+model Machines {
+  id              String         @id @default(cuid())
+  name            String
+  model_name      String
+  status          MachinesStatus @default(ACTIVE)
+  type            MACHINE_TYPE
+  temperature_max Float
+  vibration_max   Float
+  power_max       Float
+  thresholds      Json
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  role      Role     @default(MAINTENANCE)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  password  String
+}
+
+enum MACHINE_TYPE {
+  CNC
+  HYDRAULIC
+  FURNACE
+  ROBOTIC_ARM
+}
+
+enum MachinesStatus {
+  ACTIVE
+  IDLE
+  MAINTENANCE
+}
+
+enum Role {
+  ADMIN
+  ENGINEER
+  MAINTENANCE
+}
