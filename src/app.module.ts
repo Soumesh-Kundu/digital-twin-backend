@@ -1,12 +1,23 @@
 import { Module } from '@nestjs/common';
-import { UserController } from './controllers/user';
 import { DatabaseService } from './services/db';
+import { ConfigModule } from '@nestjs/config';
 import { AuthGuard } from './middlewares/auth.guard';
-import { MachineController } from './controllers/machines';
+import { MachinesModule } from './modules/machines/machine.module';
+import { MachineStreamModule } from './modules/machine_stream/machine_stream.module';
+import { UsersModule } from './modules/users/users.module';
+import { AssignmentsModule } from './modules/assignements/assignements.module';
 
 @Module({
-  imports: [],
-  controllers: [UserController,MachineController],
+  imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+    }),
+    MachinesModule,
+    MachineStreamModule,
+    UsersModule,
+    AssignmentsModule,
+  ],
+  controllers: [],
   providers: [DatabaseService, {
     provide: 'APP_GUARD',
     useClass: AuthGuard
