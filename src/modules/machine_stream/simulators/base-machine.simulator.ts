@@ -1,10 +1,15 @@
 import { EventEmitter } from 'events';
+import { ParamPhase, ThresholdTransition } from './types/param-types';
 
 export interface MachineData {
   machineId: string;
   timestamp: string;
   state: 'ACTIVE' | 'IDLE' | 'MAINTENANCE' | 'FAULT';
-  metrics: Record<string, number>;
+  metrics: Record<string, {
+    value: number;
+    phase: ParamPhase;
+    transition: ThresholdTransition;
+  }>;
 }
 
 export abstract class BaseMachineSimulator extends EventEmitter {

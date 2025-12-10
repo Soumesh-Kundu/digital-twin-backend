@@ -1,26 +1,38 @@
 // src/machine-stream/machine-stream.manager.ts
 
 import { Injectable } from '@nestjs/common';
+import { OnEvent } from '@nestjs/event-emitter';
 import { Server } from 'socket.io';
 import { GenericMachineSimulator, ParamAlertPayload } from './simulators/generic-machine.simulator';
 import { AlertsService } from '../alerts/alerts.service';
-import { AlertType } from '@prisma/client';
+import { AlertType, MachinesStatus } from '@prisma/client';
+import { MachineStatusChangedEvent } from '../machines/events/machine-status-changed.event';
+import { MachinesService } from '../machines/machine.service';
 
 interface MachineStreamEntry {
   simulator: GenericMachineSimulator;
   refCount: number;
   listener: (data: any) => void;
   resolvedParams: Map<string, boolean>;
+  isPaused: boolean;
 }
 
 @Injectable()
 export class MachineStreamManager {
   private streams = new Map<string, MachineStreamEntry>();
+  private serverRef: Server | null = null;
 
-  constructor(private readonly alertsService: AlertsService) {}
+  constructor(
+    private readonly alertsService: AlertsService,
+    private readonly machinesService: MachinesService,
+  ) {}
 
   roomName(machineId: string) {
     return `machine:${machineId}`;
+  }
+
+  setServer(server: Server) {
+    this.serverRef = server;
   }
 
   markAlarmResolved(machineId: string, paramName: string) {
@@ -34,9 +46,17 @@ export class MachineStreamManager {
     thresholds: Record<string, number>,
     server: Server,
   ) {
+    // Store server reference for event handler
+    this.serverRef = server;
+
     let entry = this.streams.get(machineId);
     if (entry) {
       entry.refCount++;
+      // Resume if paused
+      if (entry.isPaused) {
+        entry.simulator.start();
+        entry.isPaused = false;
+      }
       return entry;
     }
 
@@ -90,10 +110,75 @@ export class MachineStreamManager {
       refCount: 1,
       listener,
       resolvedParams,
+      isPaused: false,
     };
 
     this.streams.set(machineId, entry);
     return entry;
+  }
+
+  pauseStream(machineId: string) {
+    const entry = this.streams.get(machineId);
+    if (!entry || entry.isPaused) return;
+
+    entry.simulator.stop();
+    entry.isPaused = true;
+    console.log(`Stream paused for machine: ${machineId}`);
+  }
+
+  resumeStream(machineId: string) {
+    const entry = this.streams.get(machineId);
+    if (!entry || !entry.isPaused) return;
+
+    entry.simulator.start();
+    entry.isPaused = false;
+    console.log(`Stream resumed for machine: ${machineId}`);
+  }
+
+  @OnEvent('machine.status.changed')
+  async handleMachineStatusChange(event: MachineStatusChangedEvent) {
+    const { machineId, oldStatus, newStatus } = event;
+    console.log(`Machine ${machineId} status changed: ${oldStatus} -> ${newStatus}`);
+
+    const entry = this.streams.get(machineId);
+    
+    // If no active stream for this machine, nothing to do
+    if (!entry) {
+      // But if machine became ACTIVE and there are subscribers, start stream
+      if (newStatus === MachinesStatus.ACTIVE && this.serverRef) {
+        const room = this.serverRef.sockets.adapter.rooms.get(this.roomName(machineId));
+        if (room && room.size > 0) {
+          const thresholds = await this.machinesService.getMetricsThresholds(machineId);
+          this.ensureStream(machineId, thresholds, this.serverRef);
+        }
+      }
+      return;
+    }
+
+    // Machine became ACTIVE - resume stream
+    if (newStatus === MachinesStatus.ACTIVE) {
+      this.resumeStream(machineId);
+      // Notify subscribers about status change
+      if (this.serverRef) {
+        this.serverRef.to(this.roomName(machineId)).emit('machine_status_changed', {
+          machineId,
+          status: newStatus,
+          streaming: true,
+        });
+      }
+    } 
+    // Machine became IDLE or MAINTENANCE - pause stream
+    else {
+      this.pauseStream(machineId);
+      // Notify subscribers about status change
+      if (this.serverRef) {
+        this.serverRef.to(this.roomName(machineId)).emit('machine_status_changed', {
+          machineId,
+          status: newStatus,
+          streaming: false,
+        });
+      }
+    }
   }
 
   releaseStream(machineId: string, server: Server) {

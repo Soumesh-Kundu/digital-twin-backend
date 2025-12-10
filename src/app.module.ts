@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { DatabaseService } from './services/db';
 import { ConfigModule } from '@nestjs/config';
+import { EventEmitterModule } from '@nestjs/event-emitter';
 import { AuthGuard } from './middlewares/auth.guard';
 import { MachinesModule } from './modules/machines/machine.module';
 import { MachineStreamModule } from './modules/machine_stream/machine_stream.module';
@@ -12,6 +13,7 @@ import { AssignmentsModule } from './modules/assignements/assignements.module';
     ConfigModule.forRoot({
       isGlobal: true,
     }),
+    EventEmitterModule.forRoot(),
     MachinesModule,
     MachineStreamModule,
     UsersModule,

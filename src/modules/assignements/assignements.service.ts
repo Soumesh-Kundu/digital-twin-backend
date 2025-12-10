@@ -11,18 +11,18 @@ export class AssignmentsService {
   // ----------------- existing method -----------------
   async updateAssignments(body: UpdateAssignmentsDTO) {
     try {
-      const { machineId, userId } = body;
+      const { machineId, userIds } = body;
 
       const existingAssignments = await this.db.machine_Assignments.findMany({
         where: { machineId },
       });
 
-      const toAdd = userId.filter(
+      const toAdd = userIds.filter(
         (id) => !existingAssignments.some((assignment) => assignment.userId === id),
       );
 
       const toRemove = existingAssignments
-        .filter((assignment) => !userId.includes(assignment.userId))
+        .filter((assignment) => !userIds.includes(assignment.userId))
         .map((assignment) => assignment.id);
 
       await this.db.$transaction([
@@ -85,6 +85,32 @@ export class AssignmentsService {
     }
   }
 
+  async getAssigneesForMachine(machineId: string) {
+    try {
+      const assignments = await this.db.machine_Assignments.findMany({
+        where: { machineId },
+        select:{
+          user:{
+            select:{
+              id:true,
+              name:true
+            }
+          }
+        }
+      });
+      return assignments.map((a) => ({
+        id: a.user.id,
+        name: a.user.name,
+      }));
+    }
+    catch (error) {
+      console.log('Error fetching assignees for machine:', error);
+      throw new InternalServerErrorException({
+        message: 'Internal Server Error',
+      });
+    }
+  }
+
   // ----------------- NEW: 2) machines for a specific user -----------------
   async getMachinesForUser(userId: string) {
     try {
@@ -104,6 +130,10 @@ export class AssignmentsService {
         model_name: string;
         type: string;
         status: string;
+        temperature_max: number;
+        vibration_max: number;
+        power_max: number;
+        thresholds: any;
       }[] = [];
 
       for (const a of assignments) {
@@ -117,6 +147,10 @@ export class AssignmentsService {
           model_name: a.machine.model_name,
           type: a.machine.type,
           status: a.machine.status,
+          temperature_max: a.machine.temperature_max,
+          vibration_max: a.machine.vibration_max,
+          power_max: a.machine.power_max,
+          thresholds: a.machine.thresholds,
         });
       }
 

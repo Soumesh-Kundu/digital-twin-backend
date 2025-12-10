@@ -5,17 +5,31 @@ import {
   InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { DatabaseService } from 'src/services/db';
 import { MachineDTO } from './dto/machine.dto';
 import { JsonValue } from '@prisma/client/runtime/library';
+import { MachineStatusChangedEvent } from './events/machine-status-changed.event';
 
 @Injectable()
 export class MachinesService {
-  constructor(private readonly db: DatabaseService) {}
+  constructor(
+    private readonly db: DatabaseService,
+    private readonly eventEmitter: EventEmitter2,
+  ) {}
 
   async findAll() {
     try {
-      return await this.db.machines.findMany();
+      return await this.db.machines.findMany({
+        orderBy: { createdAt: 'asc' },
+        include:{
+          _count:{
+            select:{
+              assignments:true
+            }
+          }
+        },
+      });
     } catch (error) {
       console.error('Error fetching machines:', error);
       throw new InternalServerErrorException({
@@ -49,7 +63,17 @@ export class MachinesService {
 
   async update(id: string, data: MachineDTO) {
     try {
-      await this.ensureExists(id);
+      // Get current machine to check for status change
+      const currentMachine = await this.db.machines.findUnique({
+        where: { id },
+        select: { status: true },
+      });
+
+      if (!currentMachine) {
+        throw new NotFoundException({ message: 'Machine not found' });
+      }
+
+      const oldStatus = currentMachine.status;
 
       await this.db.machines.update({
         where: { id },
@@ -64,6 +88,14 @@ export class MachinesService {
           thresholds: (data.thresholds ?? {}) as JsonValue,
         },
       });
+
+      // Emit event if status changed
+      if (oldStatus !== data.status) {
+        this.eventEmitter.emit(
+          'machine.status.changed',
+          new MachineStatusChangedEvent(id, oldStatus, data.status),
+        );
+      }
 
       return { message: 'Machine updated successfully' };
     } catch (error) {
@@ -150,12 +182,12 @@ export class MachinesService {
     };
 
     const extra = (machine.thresholds ?? {}) as Record<string, unknown>;
+    console.log('extra thresholds:', extra);
 
     for (const [key, value] of Object.entries(extra)) {
-      if (typeof value === 'number') {
-        base[key] = value;
-      }
+      base[key] = parseInt(value as string);
     }
+    console.log('Compiled metrics thresholds:', base);
 
     return base;
   }

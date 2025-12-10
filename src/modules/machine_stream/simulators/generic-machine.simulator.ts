@@ -30,7 +30,7 @@ export class GenericMachineSimulator extends BaseMachineSimulator {
 
   protected generateData(): MachineData {
     const now = Date.now();
-    const metrics: Record<string, number> = {};
+    const metrics:MachineData["metrics"]= {};
 
     for (const [name, sim] of this.params) {
       const step = sim.step({
@@ -39,7 +39,11 @@ export class GenericMachineSimulator extends BaseMachineSimulator {
         isAlarmResolved: this.isParamResolved(name),
       });
 
-      metrics[name] = step.value;
+      metrics[name] = {
+        value: step.value,
+        phase: step.phase,
+        transition: step.transition,
+      };
 
        if (step.shouldCreateAlarm && this.onAlert) {
         this.onAlert({

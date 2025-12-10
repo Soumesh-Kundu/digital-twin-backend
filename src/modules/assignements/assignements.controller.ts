@@ -43,6 +43,11 @@ export class AssignmentsController {
     }
   }
 
+  @Get('/machine-assignees')
+  async getMachineAssignees(@Query('machineId') machineId: string) {
+    return this.assignmentsService.getAssigneesForMachine(machineId);
+  }
+
   // ----------------- NEW: 3) recent assignees -----------------
   // Returns latest assignments, ordered by assignedAt desc
   // includes: machine name, machine type, user name
