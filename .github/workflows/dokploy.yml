@@ -1,0 +1,33 @@
+name: Build and Deploy Docker Image to Dokploy
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    name: Deploy app
+    runs-on: ubuntu-latest
+    concurrency: deploy-group    # optional: ensure only one action runs at a time
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build and push Docker image
+        run: docker buildx build --platform linux/amd64 -t soumeshkundu/digital-twin-backend:latest --push .
+
+      - name: Dokploy Deployment
+        uses: Pukimaa/dokploy-deploy-action@2.1.0
+        with:
+          APPLICATION_ID: LXdLXvu-So2TphQFi9xck
+          DOKPLOY_HOST: ${{ secrets.DOKPLOY_HOST }}
+          DOKPLOY_TOKEN: ${{ secrets.DOKPLOY_TOKEN }}
