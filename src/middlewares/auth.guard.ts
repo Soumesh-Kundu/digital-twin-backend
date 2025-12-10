@@ -8,6 +8,7 @@ export class AuthGuard implements CanActivate {
         try {
 
             const request = context.switchToHttp().getRequest<Request>();
+            console.log(request.cookies)
             const sessionToken = request.cookies['next-auth.session-token'];
 
             if (!sessionToken) {
