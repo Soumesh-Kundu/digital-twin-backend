@@ -182,12 +182,10 @@ export class MachinesService {
     };
 
     const extra = (machine.thresholds ?? {}) as Record<string, unknown>;
-    console.log('extra thresholds:', extra);
 
     for (const [key, value] of Object.entries(extra)) {
       base[key] = parseInt(value as string);
     }
-    console.log('Compiled metrics thresholds:', base);
 
     return base;
   }

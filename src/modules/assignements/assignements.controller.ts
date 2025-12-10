@@ -32,10 +32,19 @@ export class AssignmentsController {
   }
 
   // ----------------- NEW: 2) machines for current user (engineer dashboard) -----------------
+  // For admin role, returns all machines with minimal data
+  // For other roles, returns assigned machines with full threshold data
   @Get('/my-machines')
   async getMyMachines(@Req() request: Request) {
     try {
       const user = request['user'];
+      
+      // Admin gets all machines with minimal data (for alert listening)
+      if (user.role === 'ADMIN') {
+        return this.assignmentsService.getAllMachinesMinimal();
+      }
+      
+      // Engineers/Maintenance get their assigned machines with full data
       return this.assignmentsService.getMachinesForUser(user.id);
     } catch (error) {
       console.log('Error getting machines for user:', error);

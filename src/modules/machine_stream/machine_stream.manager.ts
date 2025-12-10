@@ -8,6 +8,7 @@ import { AlertsService } from '../alerts/alerts.service';
 import { AlertType, MachinesStatus } from '@prisma/client';
 import { MachineStatusChangedEvent } from '../machines/events/machine-status-changed.event';
 import { MachinesService } from '../machines/machine.service';
+import { AlertResolvedEvent } from '../alerts/events/alert-resolved.event';
 
 interface MachineStreamEntry {
   simulator: GenericMachineSimulator;
@@ -68,38 +69,42 @@ export class MachineStreamManager {
       1000,
       (param) => resolvedParams.get(param) ?? false,
       async (alert: ParamAlertPayload) => {
+        // Format parameter name: snake_case or camelCase to Title Case
+        // e.g., "spindle_speed" -> "Spindle Speed", "spindleSpeed" -> "Spindle Speed"
+        // Also remove "max" or "Max" words from parameter name
+        const formattedParam = alert.parameter
+          .replace(/_?(max|Min)_?/gi, '') // Remove max/min words
+          .replace(/_/g, ' ') // snake_case to spaces
+          .replace(/([a-z])([A-Z])/g, '$1 $2') // camelCase to spaces
+          .split(' ')
+          .filter(word => word.length > 0) // Remove empty strings
+          .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+          .join(' ');
+        
         // 1) Create DB alert
-        const message = `Parameter ${alert.parameter} crossed threshold with value ${alert.value.toFixed(
+        const message = `Parameter ${formattedParam} ${alert.phase === 'IN_BAND' ? 'exceeded' : 'approaching'} threshold with value ${alert.value.toFixed(
           2,
         )}`;
+
+        // Determine alert type based on phase
+        const alertType = alert.phase === 'IN_BAND' 
+          ? AlertType.ERROR 
+          : AlertType.WARNING;
 
         const created = await this.alertsService.createAlert({
           machineId,
           message,
-          alertType: AlertType.WARNING, // you can change logic to ERROR later
+          alertType,
         });
 
         // 2) Emit WebSocket alert to everyone subscribed to this machine room
-        const payload = {
-          id: created.id,
-          machineId,
-          alertType: created.alertType,
-          status: created.status,
-          message: created.message,
-          createdAt: created.createdAt,
-          parameter: alert.parameter,
-          value: alert.value,
-          phase: alert.phase,
-          transition: alert.transition,
-          timestamp: new Date(alert.timestamp).toISOString(),
-        };
-
-        server.to(this.roomName(machineId)).emit('machine_alert', payload);
+        // Emit the same structure as DB response for consistency
+        server.to(this.roomName(machineId)).emit('machine_alert', created);
       },
     );
 
     const listener = (data: any) => {
-      server.to(this.roomName(machineId)).emit('machine_update', data);
+      server.to(this.roomName(machineId)).emit(`machine_update_${machineId}`, data);
     };
 
     simulator.on('data', listener);
@@ -160,7 +165,7 @@ export class MachineStreamManager {
       this.resumeStream(machineId);
       // Notify subscribers about status change
       if (this.serverRef) {
-        this.serverRef.to(this.roomName(machineId)).emit('machine_status_changed', {
+        this.serverRef.to(this.roomName(machineId)).emit(`machine_status_${machineId}`, {
           machineId,
           status: newStatus,
           streaming: true,
@@ -172,13 +177,22 @@ export class MachineStreamManager {
       this.pauseStream(machineId);
       // Notify subscribers about status change
       if (this.serverRef) {
-        this.serverRef.to(this.roomName(machineId)).emit('machine_status_changed', {
+        this.serverRef.to(this.roomName(machineId)).emit(`machine_status_${machineId}`, {
           machineId,
           status: newStatus,
           streaming: false,
         });
       }
     }
+  }
+
+  @OnEvent('alert.resolved')
+  handleAlertResolved(event: AlertResolvedEvent) {
+    const { machineId, parameter } = event;
+    console.log(`Alert resolved for machine ${machineId}, parameter: ${parameter}`);
+    
+    // Mark the parameter as resolved so simulator transitions to cooldown
+    this.markAlarmResolved(machineId, parameter);
   }
 
   releaseStream(machineId: string, server: Server) {
@@ -189,7 +203,9 @@ export class MachineStreamManager {
     const room = server.sockets.adapter.rooms.get(this.roomName(machineId));
     const roomSize = room?.size ?? 0;
 
+    console.log(`Releasing stream for machine: ${machineId}, refCount: ${entry.refCount}, roomSize: ${roomSize}`);
     if (entry.refCount <= 0 || roomSize === 0) {
+      console.log(`Stopping and removing stream for machine: ${machineId}`);
       entry.simulator.off('data', entry.listener);
       entry.simulator.stop();
       this.streams.delete(machineId);

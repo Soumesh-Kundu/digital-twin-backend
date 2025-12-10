@@ -24,6 +24,12 @@ export class AlertsController {
     @Query() query: GetAlertsQueryDto,
   ) {
     const user = request['user'];
+    
+    // Admin gets recent 5 alerts across all machines
+    if (user.role === 'ADMIN') {
+      return this.alertsService.getRecentAlertsForAdmin(5);
+    }
+    
     return this.alertsService.getAlertsForUser(user.id, query);
   }
 

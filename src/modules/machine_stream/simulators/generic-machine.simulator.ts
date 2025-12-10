@@ -37,7 +37,9 @@ export class GenericMachineSimulator extends BaseMachineSimulator {
         maxThreshold: sim.maxThreshold,
         now,
         isAlarmResolved: this.isParamResolved(name),
-      });
+      },
+      this.machineId==="cmiyboq3r0006olyo6uasmlhl"
+    );
 
       metrics[name] = {
         value: step.value,

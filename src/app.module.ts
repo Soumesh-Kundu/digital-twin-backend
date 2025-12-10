@@ -7,6 +7,7 @@ import { MachinesModule } from './modules/machines/machine.module';
 import { MachineStreamModule } from './modules/machine_stream/machine_stream.module';
 import { UsersModule } from './modules/users/users.module';
 import { AssignmentsModule } from './modules/assignements/assignements.module';
+import { AlertsModule } from './modules/alerts/alerts.module';
 
 @Module({
   imports: [

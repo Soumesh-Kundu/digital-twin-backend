@@ -163,6 +163,28 @@ export class AssignmentsService {
     }
   }
 
+  // ----------------- NEW: Get all machines (for admin) -----------------
+  async getAllMachinesMinimal() {
+    try {
+      const machines = await this.db.machines.findMany({
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          name: true,
+          model_name: true,
+          type: true,
+          status: true,
+        },
+      });
+      return machines;
+    } catch (error) {
+      console.log('Error fetching all machines:', error);
+      throw new InternalServerErrorException({
+        message: 'Internal Server Error',
+      });
+    }
+  }
+
   // ----------------- NEW: 3) recent assignees with machine + user info -----------------
   async getRecentAssignments(limit = 10) {
     try {

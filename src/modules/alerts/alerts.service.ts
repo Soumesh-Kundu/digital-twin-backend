@@ -5,10 +5,12 @@ import {
   InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { DatabaseService } from 'src/services/db';
 import { AlertStatus, AlertType } from '@prisma/client';
 import { GetAlertsQueryDto } from './dto/alerts.dto';
 import { UpdateAlertStatusDto } from './dto/alerts.dto';
+import { AlertResolvedEvent } from './events/alert-resolved.event';
 
 export interface CreateAlertInput {
   machineId: string;
@@ -18,7 +20,51 @@ export interface CreateAlertInput {
 
 @Injectable()
 export class AlertsService {
-  constructor(private readonly db: DatabaseService) { }
+  constructor(
+    private readonly db: DatabaseService,
+    private readonly eventEmitter: EventEmitter2,
+  ) {}
+
+  /**
+   * Get recent alerts for admin users (no assignment filter)
+   */
+  async getRecentAlertsForAdmin(limit: number = 5) {
+    try {
+      const [items, pendingCount] = await this.db.$transaction([
+        this.db.alerts.findMany({
+          orderBy: { createdAt: 'desc' },
+          take: limit,
+          include: {
+            machine: {
+              select: { id: true, name: true, model_name: true },
+            },
+            resolvedBy: {
+              select: { id: true, name: true, email: true },
+            },
+          },
+        }),
+        this.db.alerts.count({
+          where: { status: AlertStatus.PENDING },
+        }),
+      ]);
+
+      return {
+        data: items,
+        meta: {
+          page: 1,
+          pageSize: limit,
+          total: items.length,
+          totalPages: 1,
+          pending: pendingCount,
+        },
+      };
+    } catch (error) {
+      console.error('Error fetching alerts for admin:', error);
+      throw new InternalServerErrorException({
+        message: 'Internal Server Error',
+      });
+    }
+  }
 
   async createAlert(input: CreateAlertInput) {
     try {
@@ -28,6 +74,14 @@ export class AlertsService {
           message: input.message,
           alertType: input.alertType,
           status: AlertStatus.PENDING,
+        },
+        include: {
+          machine: {
+            select: { id: true, name: true, model_name: true },
+          },
+          resolvedBy: {
+            select: { id: true, name: true, email: true },
+          },
         },
       });
 
@@ -68,7 +122,7 @@ export class AlertsService {
     }
 
     try {
-      const [items, total] = await this.db.$transaction([
+      const [items, total,pendings] = await this.db.$transaction([
         this.db.alerts.findMany({
           where,
           orderBy: { createdAt: 'desc' },
@@ -84,6 +138,12 @@ export class AlertsService {
           },
         }),
         this.db.alerts.count({ where }),
+        this.db.alerts.count({
+          where:{
+            ...where,
+            status: AlertStatus.PENDING
+          }
+        })
       ]);
 
       return {
@@ -93,6 +153,7 @@ export class AlertsService {
           pageSize,
           total,
           totalPages: Math.ceil(total / pageSize),
+          pending: pendings,
         },
       };
     } catch (error) {
@@ -140,6 +201,25 @@ export class AlertsService {
         where: { id: alertId },
         data,
       });
+
+      // Emit event when alert is resolved to trigger cooldown
+      if (dto.status === AlertStatus.RESOLVED) {
+        // Extract parameter name from message (e.g., "Parameter temperature exceeded threshold...")
+        const paramMatch = alert.message.match(/Parameter (\w+)/i);
+        const paramName = paramMatch ? paramMatch[1] : '';
+        
+        if (paramName) {
+          this.eventEmitter.emit(
+            'alert.resolved',
+            new AlertResolvedEvent(
+              alertId,
+              alert.machineId,
+              alert.message,
+              paramName,
+            ),
+          );
+        }
+      }
 
       return {
         message: 'Alert status updated successfully',
